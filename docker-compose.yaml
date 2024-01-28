@@ -6,3 +6,8 @@ services:
     restart: always
     environment:
       - NOTIFIERS= #Apprise notifiers
+      - TZ=Asia/Jerusalem
+      - LOCATION=
+      - LANGUAGE=
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
