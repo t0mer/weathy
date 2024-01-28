@@ -1,0 +1,8 @@
+version: "3.6"
+services:
+  weathy:
+    image: techblog/weathy
+    container_name: weathy
+    restart: always
+    environment:
+      - NOTIFIERS= #Apprise notifiers
