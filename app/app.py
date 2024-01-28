@@ -14,7 +14,18 @@ LANGUAGE = os.getenv("LANGUAGE")
 
 apobj = apprise.Apprise()
 
-
+def get_weather():
+    try:
+        forecast = ""
+        weather = WeatherIL(LOCATION,LANGUAGE).get_forecast() 
+        for x in range(1, 5):
+            forecast = forecast + f"*תחזית ארצית ליום {weather.days[x].day} ה {weather.days[x].date.strftime('%d/%m/%Y')}*\n"
+            forecast = forecast + weather.days[x].description + "\n"
+            forecast = forecast + f"טמפרטורה: {weather.days[x].maximum_temperature}°-{weather.days[x].minimum_temperature}°\n\n"
+        return forecast
+    except Exception as e:
+        logger.error(e)
+        return("aw snap something went wrong")
 
 
 
