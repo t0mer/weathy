@@ -7,7 +7,7 @@ import schedule
 from loguru import logger
 from  weatheril import WeatherIL
 
-SCHEDULE = int(os.getenv("SCHEDULE"))
+SCHEDULE = os.getenv("SCHEDULE")
 NOTIFIERS = os.getenv("NOTIFIERS")
 LOCATION = os.getenv("LOCATION")
 LANGUAGE = os.getenv("LANGUAGE")
@@ -18,17 +18,23 @@ def get_weather():
     try:
         forecast = ""
         weather = WeatherIL(LOCATION,LANGUAGE).get_forecast() 
-        for x in range(1, 5):
-            forecast = forecast + f"*תחזית ארצית ליום {weather.days[x].day} ה {weather.days[x].date.strftime('%d/%m/%Y')}*\n"
-            forecast = forecast + weather.days[x].description + "\n"
-            forecast = forecast + f"טמפרטורה: {weather.days[x].maximum_temperature}°-{weather.days[x].minimum_temperature}°\n\n"
-        return forecast
+        forecast = forecast + f"<b>תחזית ארצית ליום {weather.days[1].day} ה {weather.days[1].date.strftime('%d/%m/%Y')}</b>\n\n"
+        forecast = forecast + weather.days[1].description + "\n"
+        forecast = forecast + f"טמפרטורה: {weather.days[1].maximum_temperature}°-{weather.days[1].minimum_temperature}°\n\n"
+        
+        send_forecast(forecast)
     except Exception as e:
         logger.error(e)
         return("aw snap something went wrong")
 
 
-
+def send_forecast(message):
+    if len(NOTIFIERS)!=0:
+        apobj.notify(
+            body=message,
+            title="",
+        )
+   
 
 
 if __name__=="__main__":
@@ -37,3 +43,4 @@ if __name__=="__main__":
   for job in jobs:
     logger.debug("Adding: " + job)
     apobj.add(job)
+  get_weather()
