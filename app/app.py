@@ -5,8 +5,8 @@ import json
 import apprise
 import schedule
 from loguru import logger
-from  weatheril import WeatherIL
-
+from  weatheril import WeatherIL, utils
+from datetime import datetime, time
 SCHEDULE = os.getenv("SCHEDULE")
 NOTIFIERS = os.getenv("NOTIFIERS")
 LOCATION = os.getenv("LOCATION")
@@ -15,12 +15,23 @@ LANGUAGE = os.getenv("LANGUAGE")
 apobj = apprise.Apprise()
 
 def get_weather():
+    current_time = datetime.now().time()
     try:
         forecast = ""
-        weather = WeatherIL(LOCATION,LANGUAGE).get_forecast() 
-        forecast = forecast + f"<b>תחזית ארצית ליום {weather.days[1].day} ה {weather.days[1].date.strftime('%d/%m/%Y')}</b>\n\n"
-        forecast = forecast + weather.days[1].description + "\n"
-        forecast = forecast + f"טמפרטורה: {weather.days[1].maximum_temperature}°-{weather.days[1].minimum_temperature}°\n\n"
+        hourly = "\n\n\n\n"
+        weather = WeatherIL(LOCATION,LANGUAGE).get_forecast().days[1]
+        forecast = forecast + f"<b>תחזית ארצית ליום {weather.day} ה {weather.date.strftime('%d/%m/%Y')}</b>\n\n"
+        forecast = forecast + weather.description + "\n"
+        forecast = forecast + f"טמפרטורה ממוצעת: {weather.maximum_temperature}°-{weather.minimum_temperature}°\n\n"
+        
+        for hour in weather.hours:
+            forecast_time = time(int(hour.hour.split(":")[0]),int(hour.hour.split(":")[1]))
+            if forecast_time > current_time:
+                hourly = hourly + "<b>" + hour.hour + " :</b>" + str(hour.temperature)  + ", " + utils.HE_WEATHER_CODES.get(str(hour.weather_code), "") +   ", עם " + str(hour.rain_chance) + "% סיכוי לגשם" + "\n\n"
+                
+                
+        forecast = forecast + hourly
+
         
         send_forecast(forecast)
     except Exception as e:
