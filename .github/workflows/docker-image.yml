@@ -43,4 +43,4 @@ jobs:
           push: true
           tags: |
             techblog/weathy:latest
-            techblog/weathy:${{ steps.getSemver.outputs.semver }}       
+            techblog/weathy:${{ steps.getSemver.outputs.semver }}     
