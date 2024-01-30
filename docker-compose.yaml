@@ -9,5 +9,6 @@ services:
       - TZ=Asia/Jerusalem
       - LOCATION=
       - LANGUAGE=
+      - SCHEDULE=
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
