@@ -1,7 +1,4 @@
-import io
 import os
-import sys
-import json
 import time
 import apprise
 import schedule
@@ -29,16 +26,11 @@ def get_weather():
             forecast_time = datetime.time(int(hour.hour.split(":")[0]),int(hour.hour.split(":")[1]))
             if forecast_time > current_time:
                 hourly = hourly + "<b>" + hour.hour + " :</b>" + str(hour.temperature)  + ", " + utils.HE_WEATHER_CODES.get(str(hour.weather_code), "") +   ", " + str(hour.rain_chance) + "% סיכוי לגשם" + "\n\n"
-                
-                
         forecast = forecast + hourly
-
-        
         send_forecast(forecast)
-
     except Exception as e:
-        logger.error(e)
-        return("aw snap something went wrong")
+        logger.error("aw snap something went wrong: " + str(e))
+        send_forecast("aw snap something went wrong")
 
 
 def send_forecast(message):
