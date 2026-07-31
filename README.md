@@ -1,7 +1,7 @@
 # weathy
 wathy is a python powered bot for sending weather forecast on a scheduled time.
 
-![wathy](screenshots/wathy.png)
+![wathy](https://raw.githubusercontent.com/t0mer/weathy/main/screenshots/wathy.png)
 
 ## Features
 - Send daily weather forecast
