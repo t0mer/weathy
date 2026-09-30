@@ -1,82 +1,207 @@
 # weathy
-wathy is a python powered bot for sending weather forecast on a scheduled time.
+
+[![Docker Pulls](https://img.shields.io/docker/pulls/techblog/weathy)](https://hub.docker.com/r/techblog/weathy)
+
+weathy is a small Python service that sends a daily weather forecast for a location in Israel at a scheduled time. It pulls the forecast from the Israel Meteorological Service (IMS) through the [weatheril](https://pypi.org/project/weatheril/) library, formats it as a Hebrew message, and delivers it through [Apprise](https://github.com/caronc/apprise). Apprise supports Telegram, which is the main use case (see the screenshot below), plus dozens of other services such as Discord, Slack, Pushover, Gotify and email.
 
 ![wathy](https://raw.githubusercontent.com/t0mer/weathy/main/screenshots/wathy.png)
 
+> **Disclaimer:** weathy is an unofficial, community project. It is not affiliated with, endorsed by or connected to the Israel Meteorological Service. All forecast data comes from the IMS; see [ims.gov.il](https://ims.gov.il) for the official forecast and its terms of use.
+
+## Table of contents
+
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Components and frameworks](#components-and-frameworks)
+- [Requirements](#requirements)
+- [Create a Telegram bot](#create-a-telegram-bot)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Supported notifications](#supported-notifications)
+- [Troubleshooting](#troubleshooting)
+- [Security notes](#security-notes)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
-- Send daily weather forecast
 
+- Sends one weather forecast per day at a time you choose (`SCHEDULE`).
+- Uses IMS forecast data for any location ID that weatheril supports (cities and nature sites, see the [locations table](#locations-table)).
+- The message includes:
+  - a bold header with the day name and date (`DD/MM/YYYY`);
+  - the IMS national forecast text for that day;
+  - the day's maximum and minimum temperatures;
+  - an hourly list with temperature, weather condition (in Hebrew), and chance of rain. The condition can be empty; see [Troubleshooting](#troubleshooting).
+- Delivers the message to one or more [Apprise](https://github.com/caronc/apprise) targets at the same time (Telegram, Discord, Slack, email, and many more).
+- If fetching or parsing the forecast fails, sends a short error message (`aw snap something went wrong`) instead, so you know the job ran.
+- Runs as a multi-arch Docker image (`linux/amd64`, `linux/arm64`, `linux/arm/v7`).
 
-## Components and Frameworks used in weathy:
-* [Loguru](https://pypi.org/project/loguru/) For logging.
-* [schedule](https://pypi.org/project/schedule/) Python job scheduling for humans.
-* [apprise](https://pypi.org/project/apprise/) Apprise allows you to send a notification to almost all of the most popular notification services available.
-* [weatheril](https://pypi.org/project/weatheril/) weatheril is an unofficial IMS (Israel Meteorological Service) python API wrapper.
+weathy is a push-only sender. It does not listen for incoming messages, so it has no bot commands and no chat allowlist: it only sends to the targets you list in `NOTIFIERS`.
 
+## How it works
 
+```mermaid
+flowchart LR
+    S["schedule<br/>(daily at SCHEDULE)"] --> W["weathy<br/>app/app.py"]
+    W -->|"WeatherIL(LOCATION, LANGUAGE)"| IMS["IMS forecast<br/>ims.gov.il"]
+    W -->|"apprise.notify()"| A["Apprise"]
+    A --> T["Telegram (tgram://)"]
+    A --> O["Other Apprise targets"]
+```
 
-## Installation
+1. On startup, weathy splits `NOTIFIERS` on whitespace and registers every Apprise URL.
+2. The `schedule` library runs the job once a day at `SCHEDULE`, in the container's local time. The loop checks for pending jobs every second.
+3. The job calls `WeatherIL(LOCATION, LANGUAGE).get_forecast()` and uses the day at index `1` of the returned list. weatheril returns the days in IMS feed order, and the feed starts with the previous day, so index `1` is today. The screenshot shows a forecast sent on 30/01/2024 for 30/01/2024. If IMS ever stops including the previous day, index `1` would be tomorrow.
+4. Only the hourly entries whose time of day is later than the current time are included. For example, a job that runs at 18:00 lists the hours from 19:00 on.
+5. The message is sent to all Apprise targets with an empty title. The header and the hour labels are wrapped in `<b>` tags, and `notify()` is called without a `body_format`. Telegram renders them as bold; other targets may show the tags literally.
 
-Before we can start working with weathy, we need to create a new telegram bot. 
+## Components and frameworks
 
-### Create Telegram bot
-How to Create a New Bot for Telegram
-Open [Telegram messenger](https://web.telegram.org/), sign in to your account or create a new one.
+* [Loguru](https://pypi.org/project/loguru/) for logging.
+* [schedule](https://pypi.org/project/schedule/) - Python job scheduling for humans.
+* [Apprise](https://pypi.org/project/apprise/) - send a notification to almost all of the most popular notification services.
+* [weatheril](https://pypi.org/project/weatheril/) - an unofficial IMS (Israel Meteorological Service) Python API wrapper.
 
- Enter @Botfather in the search tab and choose this bot (Official Telegram bots have a blue checkmark beside their name.)
+## Requirements
 
-[![@Botfather](https://github.com/t0mer/voicy/blob/main/screenshots/scr1-min.png?raw=true "@Botfather")](https://github.com/t0mer/voicy/blob/main/screenshots/scr1-min.png?raw=true "@Botfather")
+- Docker and Docker Compose (recommended), **or** Python 3.10+ with `pip` to run from source.
+- Outbound HTTPS access to `ims.gov.il` and to your notification service.
+- At least one Apprise notification URL. For Telegram you need a bot token and the chat ID to send to (see below).
+- The container's time zone set to Israel time (`TZ=Asia/Jerusalem`) so the schedule and the hourly filter match local time.
 
-Click “Start” to activate BotFather bot.
+## Create a Telegram bot
 
-[![@start](https://github.com/t0mer/voicy/blob/main/screenshots/scr2-min.png?raw=true "@start")](https://github.com/t0mer/voicy/blob/main/screenshots/scr1-min.png?raw=true "@start")
+Skip this section if you use a different Apprise service.
+
+Open [Telegram](https://web.telegram.org/), and sign in to your account or create a new one.
+
+Enter @BotFather in the search tab and choose this bot. (Official Telegram bots have a blue checkmark next to their name.)
+
+[![@BotFather](https://github.com/t0mer/voicy/blob/main/screenshots/scr1-min.png?raw=true "@BotFather")](https://github.com/t0mer/voicy/blob/main/screenshots/scr1-min.png?raw=true "@BotFather")
+
+Click "Start" to activate the BotFather bot.
+
+[![@start](https://github.com/t0mer/voicy/blob/main/screenshots/scr2-min.png?raw=true "@start")](https://github.com/t0mer/voicy/blob/main/screenshots/scr2-min.png?raw=true "@start")
 
 In response, you receive a list of commands to manage bots.
-Choose or type the /newbot command and send it.
+Choose or type the `/newbot` command and send it.
 
 [![@newbot](https://github.com/t0mer/voicy/blob/main/screenshots/scr3-min.png?raw=true "@newbot")](https://github.com/t0mer/voicy/blob/main/screenshots/scr3-min.png?raw=true "@newbot")
 
-
-Choose a name for your bot — your subscribers will see it in the conversation. And choose a username for your bot — the bot can be found by its username in searches. The username must be unique and end with the word “bot.”
+Choose a name for your bot. Your subscribers will see it in the conversation. Then choose a username for your bot. The bot can be found by its username in searches. The username must be unique and end with the word "bot".
 
 [![@username](https://github.com/t0mer/voicy/blob/main/screenshots/scr4-min.png?raw=true "@username")](https://github.com/t0mer/voicy/blob/main/screenshots/scr4-min.png?raw=true "@username")
 
-
-After you choose a suitable name for your bot — the bot is created. You will receive a message with a link to your bot t.me/<bot_username>, recommendations to set up a profile picture, description, and a list of commands to manage your new bot.
+After you choose a suitable name, the bot is created. You receive a message with a link to your bot (`t.me/<bot_username>`), the bot's **HTTP API token**, recommendations to set up a profile picture and description, and a list of commands to manage your new bot.
 
 [![@bot_username](https://github.com/t0mer/voicy/blob/main/screenshots/scr5-min.png?raw=true "@bot_username")](https://github.com/t0mer/voicy/blob/main/screenshots/scr5-min.png?raw=true "@bot_username")
 
+### Build the Telegram notifier URL
 
-weathy is a docker based application that can be installed using docker compose:
+Apprise's Telegram URL format is `tgram://<bot_token>/<chat_id>`:
+
+- `<bot_token>` is the token BotFather gave you.
+- `<chat_id>` is the user, group or channel to send to. Send any message to your bot first (Telegram bots can't start a conversation), then open `https://api.telegram.org/bot<bot_token>/getUpdates` and copy the `chat.id` value. Group IDs are negative numbers. In a group with privacy mode on, the bot only sees commands and mentions, so send `/start@<bot_username>` or mention the bot. For a channel, add the bot as an administrator; channel IDs start with `-100`. See the [Apprise Telegram wiki page](https://github.com/caronc/apprise/wiki/Notify_telegram) for more options.
+
+Example (placeholders only):
+
+```text
+tgram://123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/987654321
+```
+
+## Installation
+
+weathy is published as a Docker image on Docker Hub: [`techblog/weathy`](https://hub.docker.com/r/techblog/weathy).
+
+| Tag | Platforms |
+| --- | --- |
+| `latest` | `linux/amd64`, `linux/arm64`, `linux/arm/v7` |
+| `0.0.1` | `linux/amd64`, `linux/arm64`, `linux/arm/v7` |
+
+Both tags were pushed in January 2024. There are no GitHub releases or git tags. A GitHub Container Registry workflow exists (see [Development](#development)), but no `ghcr.io/t0mer/weathy` image has been published yet.
+
+### Docker Compose
+
+Create a `docker-compose.yaml`:
 
 ```yaml
-version: "3.7"
-
 services:
-
   weathy:
     image: techblog/weathy:latest
     container_name: weathy
     restart: always
     environment:
-      - NOTIFIERS= #Apprise notifiers
+      - NOTIFIERS=tgram://<bot_token>/<chat_id>   # One or more Apprise URLs, separated by spaces
       - TZ=Asia/Jerusalem
-      - LOCATION= # The Location ID of your city.
-      - LANGUAGE=he #Currently the only supported language. english will be added soon.
-      - SCHEDULE= #Time of the day to send the notification, 80:00, 12:00, 20:00, etc.
+      - LOCATION=1        # Location ID from the locations table (1 = Jerusalem)
+      - LANGUAGE=he       # Hebrew; the message text is Hebrew only
+      - SCHEDULE=08:00    # Daily send time, HH:MM (24-hour)
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
 ```
 
-### Environment
-* NOTIFIERS: Apprise notifiers
-* LOCATION: The Location ID of your city from the attached table.
-* LANGUAGE: The forecast language.
-* SCHEDULE: Time of the day to send the notification, 80:00, 12:00, 20:00, etc.
+Then start it:
 
+```bash
+docker compose up -d
+docker compose logs -f weathy
+```
 
+The `docker-compose.yaml` in this repository is the same template with empty values; fill them in before you use it.
+
+### Docker run
+
+```bash
+docker run -d \
+  --name weathy \
+  --restart always \
+  -e NOTIFIERS="tgram://<bot_token>/<chat_id>" \
+  -e TZ=Asia/Jerusalem \
+  -e LOCATION=1 \
+  -e LANGUAGE=he \
+  -e SCHEDULE=08:00 \
+  -v /etc/localtime:/etc/localtime:ro \
+  techblog/weathy:latest
+```
+
+### From source
+
+```bash
+git clone https://github.com/t0mer/weathy.git
+cd weathy
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+
+export NOTIFIERS="tgram://<bot_token>/<chat_id>"
+export LOCATION=1
+export LANGUAGE=he
+export SCHEDULE=08:00
+python app/app.py
+```
+
+When you run from source, the schedule uses your machine's local time zone. Running from source needs Python 3.10 or newer, because weatheril uses `int | None` type annotations. The published image (January 2024) runs Python 3.12. The current Dockerfile targets `python:3.14-rc-slim-bookworm`, but no image has been published from it yet.
+
+## Configuration
+
+All configuration is done with environment variables. There are no CLI flags or config files.
+
+| Variable | Required | Default (Docker image) | Description |
+| --- | --- | --- | --- |
+| `NOTIFIERS` | Yes | `""` | One or more [Apprise URLs](#supported-notifications), separated by spaces. If it is empty, the job still runs but nothing is sent. |
+| `LOCATION` | Yes | `""` | IMS location ID from the [locations table](#locations-table), for example `1` for Jerusalem. |
+| `LANGUAGE` | Yes | `""` | Forecast language passed to weatheril. Use `he`. weatheril also accepts `en`, but weathy's message template and weather-condition names are Hebrew only, so `en` gives a mixed-language message. |
+| `SCHEDULE` | Yes | not set | Daily send time in `HH:MM` 24-hour format (for example `07:30` or `20:00`). `HH:MM:SS` also works. |
+| `TZ` | Recommended | not set | Container time zone. Set `Asia/Jerusalem` so `SCHEDULE` and the hourly filter use Israel time. Mounting `/etc/localtime` read-only only helps if the host itself is on Israel time, and `TZ` takes precedence over it. |
+| `LOG_LEVEL` | No | `DEBUG` | Set in the Dockerfile but not read by the application. |
+
+The Docker image also sets `PYTHONIOENCODING=utf-8` and `LANG=C.UTF-8` so Hebrew text is logged and sent correctly.
 
 ### Locations table
+
+The table below lists the location IDs. The authoritative list lives in the weatheril library, which may contain more IDs or slightly different names.
 
 | Id | Location |
 | ------------ | ----------- |
@@ -232,15 +357,48 @@ services:
 | 274| En Avdat|
 | 275| Avdat|
 | 277| Hay-Bar Yotvata|
-| 278| Coral Beach| 
+| 278| Coral Beach|
 
+## Usage
 
+1. Set the environment variables and start the container.
+2. On startup, the log shows `Setting Apprise notification channels` and one `Adding: ...` line per Apprise URL.
+3. Every day at `SCHEDULE`, weathy fetches the forecast and sends it to every Apprise target.
 
-## Supported Notifications
-The section identifies all of the services supported by this library. [Check out the wiki for more information on the supported modules here](https://github.com/caronc/apprise/wiki).
+There is no web UI, API, or bot command. To change the location, time, or targets, update the environment variables and recreate the container:
 
-### Popular Notification Services
-The table below identifies the services this tool supports and some example service urls you need to use in order to take advantage of it. Click on any of the services listed below to get more details on how you can configure Apprise to access them.
+```bash
+docker compose up -d --force-recreate
+```
+
+To send to several targets at once, separate the URLs with spaces:
+
+```text
+NOTIFIERS=tgram://<bot_token>/<chat_id> discord://<webhook_id>/<webhook_token>
+```
+
+A sample message looks like this (Hebrew, as shown in the screenshot):
+
+```text
+תחזית ארצית ליום שלישי ה 30/01/2024
+
+<IMS national forecast text>
+טמפרטורה ממוצעת: 14°-9°
+
+19:00 :12, גשום, 100% סיכוי לגשם
+...
+```
+
+The weather condition (`גשום` above) can be empty, for example `12, , 100%`. See [Troubleshooting](#troubleshooting).
+
+## Supported notifications
+
+weathy sends through Apprise, so it supports every service Apprise supports. [Check out the Apprise wiki for the full, up-to-date list](https://github.com/caronc/apprise/wiki). For Telegram, use `tgram://<bot_token>/<chat_id>`.
+
+<details>
+<summary>Popular notification services (snapshot of the Apprise documentation; the wiki is authoritative)</summary>
+
+The table below shows some of the services Apprise supports and example service URLs. Click any service for details on how to configure it.
 
 | Notification Service | Service ID | Default Port | Example Syntax |
 | -------------------- | ---------- | ------------ | -------------- |
@@ -298,8 +456,66 @@ The table below identifies the services this tool supports and some example serv
 | [Syslog](https://github.com/caronc/apprise/wiki/Notify_syslog) | syslog://  | (UDP) 514 (_if hostname specified_) | syslog://<br />syslog://Facility<br />syslog://hostname<br />syslog://hostname/Facility
 | [Telegram](https://github.com/caronc/apprise/wiki/Notify_telegram) | tgram://  | (TCP) 443   | tgram://bottoken/ChatID<br />tgram://bottoken/ChatID1/ChatID2/ChatIDN
 | [Twitter](https://github.com/caronc/apprise/wiki/Notify_twitter) | twitter://  | (TCP) 443   | twitter://CKey/CSecret/AKey/ASecret<br/>twitter://user@CKey/CSecret/AKey/ASecret<br/>twitter://CKey/CSecret/AKey/ASecret/User1/User2/User2<br/>twitter://CKey/CSecret/AKey/ASecret?mode=tweet
-| [Twist](https://github.com/caronc/apprise/wiki/Notify_twist) | twist://  | (TCP) 443   | twist://pasword:login<br/>twist://password:login/#channel<br/>twist://password:login/#team:channel<br/>twist://password:login/#team:channel1/channel2/#team3:channel
+| [Twist](https://github.com/caronc/apprise/wiki/Notify_twist) | twist://  | (TCP) 443   | twist://password:login<br/>twist://password:login/#channel<br/>twist://password:login/#team:channel<br/>twist://password:login/#team:channel1/channel2/#team3:channel
 | [XBMC](https://github.com/caronc/apprise/wiki/Notify_xbmc) | xbmc:// or xbmcs://    | (TCP) 8080 or 443   | xbmc://hostname<br />xbmc://user@hostname<br />xbmc://user:password@hostname:port
 | [XMPP](https://github.com/caronc/apprise/wiki/Notify_xmpp) | xmpp:// or xmpps://    | (TCP) 5222 or 5223   | xmpp://user:password@hostname<br />xmpps://user:password@hostname:port?jid=user@hostname/resource<br/>xmpps://user:password@hostname/target@myhost, target2@myhost/resource
 | [Webex Teams (Cisco)](https://github.com/caronc/apprise/wiki/Notify_wxteams) | wxteams://  | (TCP) 443   | wxteams://Token
 | [Zulip Chat](https://github.com/caronc/apprise/wiki/Notify_zulip) | zulip://  | (TCP) 443   | zulip://botname@Organization/Token<br />zulip://botname@Organization/Token/Stream<br />zulip://botname@Organization/Token/Email
+
+</details>
+
+## Troubleshooting
+
+- **The container exits right after it starts.** `SCHEDULE` or `NOTIFIERS` is missing or invalid. `SCHEDULE` must be set and use `HH:MM` (24-hour). Running from source without `NOTIFIERS` exported also fails at startup. Check `docker logs weathy`.
+- **Nothing is sent, and there are no errors.** `NOTIFIERS` is empty, or the Apprise URL is wrong. Check the `Adding: ...` lines in the log and test the URL with the [Apprise CLI](https://github.com/caronc/apprise/wiki/CLI_Usage).
+- **You receive `aw snap something went wrong`.** Fetching or parsing the IMS forecast failed. The log contains the exception after `aw snap something went wrong:`. Common causes: an empty or invalid `LOCATION`, an empty `LANGUAGE`, no network access to `ims.gov.il`, or a change in the IMS data format.
+- **The message arrives at the wrong time.** The schedule uses the container's local time. Set `TZ=Asia/Jerusalem`. The `/etc/localtime` mount only helps if the host is on Israel time, and `TZ` takes precedence.
+- **The hourly list is short or empty.** Only hours later than the current time of day are listed, so a late schedule time shows fewer hours.
+- **The weather condition is empty (for example `12, , 100%`).** This is a known limitation. `app.py` looks up the condition with `HE_WEATHER_CODES.get(str(code))`. Since weatheril 0.35.0 (April 2025) that table's keys are integers, so the lookup always fails on a source install or a newly built image. The published image (built with weatheril 0.32.0) still shows conditions, but codes missing from the table are empty there too; the screenshot shows `12, , 100%` at 19:00.
+- **Other targets show `<b>` tags literally.** The message uses `<b>` tags and is sent without a `body_format`. Telegram renders them as bold; other Apprise targets may not.
+- **The weather conditions are in Hebrew even with `LANGUAGE=en`.** This is expected: the message template is Hebrew only.
+
+## Security notes
+
+- The Apprise URLs in `NOTIFIERS` contain credentials (for example, your Telegram bot token). Treat them as secrets: don't commit them to git or paste them in issues, and prefer an `.env` file or your orchestrator's secret store.
+- If a bot token leaks, revoke it with @BotFather (`/revoke`) and update `NOTIFIERS`.
+- weathy opens no ports and accepts no incoming connections. It only makes outbound HTTPS requests to the IMS and your notification services.
+
+## Development
+
+Project layout:
+
+```text
+app/app.py              # the whole application: config, IMS fetch, message formatting, scheduling
+requirements.txt        # Python dependencies (unpinned, plus security floors from Snyk)
+Dockerfile              # python:3.14-rc-slim-bookworm based image
+docker-compose.yaml     # compose template
+VERSION                 # image version used by the Docker Hub workflow
+screenshots/            # README images
+.github/workflows/      # CI
+```
+
+GitHub Actions workflows:
+
+| Workflow | File | Trigger | Publishes |
+| --- | --- | --- | --- |
+| Docker Build | `docker-image.yml` | Manual (`workflow_dispatch`), or after a "Create Release" workflow completes | `techblog/weathy:latest` and `techblog/weathy:<VERSION>` to Docker Hub, for `linux/amd64`, `linux/arm64` and `linux/arm/v7` |
+| Publish to GHCR | `publish-ghcr.yml` | Manual (`workflow_dispatch`) with an optional `tag` input (default `latest`) | `ghcr.io/t0mer/weathy:<tag>` and `ghcr.io/t0mer/weathy:latest`, for the same three platforms |
+
+The repository has no "Create Release" workflow, so in practice the Docker Hub build runs only when started manually.
+
+Build the image locally:
+
+```bash
+docker build -t weathy:dev .
+```
+
+There are no tests or linters in the repository.
+
+## Contributing
+
+Issues and pull requests are welcome at [github.com/t0mer/weathy](https://github.com/t0mer/weathy). Please keep changes focused, describe how you tested them, and never include real bot tokens or chat IDs.
+
+## License
+
+This repository has no license file.
